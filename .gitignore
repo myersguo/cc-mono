@@ -1,0 +1,44 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/cmd/cc/cc
+/cc
+/bin/
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+
+# Local config
+*.local.json
+.env
+.env.local
+
+# Session data
+.cc-sessions/

@@ -1,0 +1,136 @@
+{
+  "models": [
+    {
+      "id": "gpt-4o",
+      "provider": "openai",
+      "name": "GPT-4o",
+      "context_window": 128000,
+      "max_output": 16384,
+      "input_cost_per_million": 2.5,
+      "output_cost_per_million": 10.0,
+      "supports_vision": true,
+      "supports_tools": true,
+      "supports_thinking": false
+    },
+    {
+      "id": "gpt-4o-mini",
+      "provider": "openai",
+      "name": "GPT-4o Mini",
+      "context_window": 128000,
+      "max_output": 16384,
+      "input_cost_per_million": 0.15,
+      "output_cost_per_million": 0.6,
+      "supports_vision": true,
+      "supports_tools": true,
+      "supports_thinking": false
+    },
+    {
+      "id": "o1",
+      "provider": "openai",
+      "name": "O1",
+      "context_window": 200000,
+      "max_output": 100000,
+      "input_cost_per_million": 15.0,
+      "output_cost_per_million": 60.0,
+      "supports_vision": false,
+      "supports_tools": false,
+      "supports_thinking": true
+    },
+    {
+      "id": "o1-mini",
+      "provider": "openai",
+      "name": "O1 Mini",
+      "context_window": 128000,
+      "max_output": 65536,
+      "input_cost_per_million": 3.0,
+      "output_cost_per_million": 12.0,
+      "supports_vision": false,
+      "supports_tools": false,
+      "supports_thinking": true
+    },
+    {
+      "id": "gemini-2.0-flash-exp",
+      "provider": "google",
+      "name": "Gemini 2.0 Flash Experimental",
+      "context_window": 1000000,
+      "max_output": 8192,
+      "input_cost_per_million": 0.0,
+      "output_cost_per_million": 0.0,
+      "supports_vision": true,
+      "supports_tools": true,
+      "supports_thinking": true
+    },
+    {
+      "id": "gemini-1.5-pro",
+      "provider": "google",
+      "name": "Gemini 1.5 Pro",
+      "context_window": 2000000,
+      "max_output": 8192,
+      "input_cost_per_million": 1.25,
+      "output_cost_per_million": 5.0,
+      "supports_vision": true,
+      "supports_tools": true,
+      "supports_thinking": false
+    },
+    {
+      "id": "gemini-1.5-flash",
+      "provider": "google",
+      "name": "Gemini 1.5 Flash",
+      "context_window": 1000000,
+      "max_output": 8192,
+      "input_cost_per_million": 0.075,
+      "output_cost_per_million": 0.3,
+      "supports_vision": true,
+      "supports_tools": true,
+      "supports_thinking": false
+    },
+    {
+      "id": "claude-opus-4-5",
+      "provider": "anthropic",
+      "name": "Claude Opus 4.5",
+      "context_window": 200000,
+      "max_output": 8192,
+      "input_cost_per_million": 15.0,
+      "output_cost_per_million": 75.0,
+      "supports_vision": true,
+      "supports_tools": true,
+      "supports_thinking": true
+    },
+    {
+      "id": "claude-sonnet-4-5",
+      "provider": "anthropic",
+      "name": "Claude Sonnet 4.5",
+      "context_window": 200000,
+      "max_output": 8192,
+      "input_cost_per_million": 3.0,
+      "output_cost_per_million": 15.0,
+      "supports_vision": true,
+      "supports_tools": true,
+      "supports_thinking": true
+    },
+    {
+      "id": "claude-3-5-sonnet",
+      "provider": "anthropic",
+      "name": "Claude 3.5 Sonnet",
+      "context_window": 200000,
+      "max_output": 8192,
+      "input_cost_per_million": 3.0,
+      "output_cost_per_million": 15.0,
+      "supports_vision": true,
+      "supports_tools": true,
+      "supports_thinking": false
+    },
+    {
+      "id": "claude-3-5-haiku",
+      "provider": "anthropic",
+      "name": "Claude 3.5 Haiku",
+      "context_window": 200000,
+      "max_output": 8192,
+      "input_cost_per_million": 1.0,
+      "output_cost_per_million": 5.0,
+      "supports_vision": false,
+      "supports_tools": true,
+      "supports_thinking": false
+    }
+  ]
+}

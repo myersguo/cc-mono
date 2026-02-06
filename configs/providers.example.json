@@ -1,0 +1,30 @@
+{
+  "providers": {
+    "openai": {
+      "api_key": "${OPENAI_API_KEY}",
+      "base_url": "https://api.openai.com/v1",
+      "default_model": "gpt-4-turbo"
+    },
+    "deepseek": {
+      "api_key": "${DEEPSEEK_API_KEY}",
+      "base_url": "https://api.deepseek.com/v1",
+      "default_model": "deepseek-chat"
+    },
+    "qwen": {
+      "api_key": "${DASHSCOPE_API_KEY}",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "default_model": "qwen-turbo"
+    },
+    "moonshot": {
+      "api_key": "${MOONSHOT_API_KEY}",
+      "base_url": "https://api.moonshot.cn/v1",
+      "default_model": "moonshot-v1-8k"
+    },
+    "ollama": {
+      "api_key": "ollama",
+      "base_url": "http://localhost:11434/v1",
+      "default_model": "llama2"
+    }
+  },
+  "default_provider": "openai"
+}
