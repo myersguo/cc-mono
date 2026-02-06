@@ -20,14 +20,14 @@ Built with Go for speed and reliability, CC-Mono supports multiple LLM providers
 
 ## Features
 
-✨ **Interactive TUI** - Beautiful terminal interface built with Bubbletea
-🤖 **Multi-LLM Support** - OpenAI, Google Gemini, Anthropic Claude, and any OpenAI-compatible API
-🛠️ **Built-in Tools** - Read, write, edit files, and execute bash commands
-💾 **Session Management** - Save, load, and fork conversation sessions
-🔐 **Permission System** - Granular control over tool execution
-📜 **Command History** - Persistent input history across sessions
-🎨 **Customizable** - Themes, extensions, and plugin system
-⚡ **Fast & Lightweight** - Single binary, minimal dependencies
+✨ **Interactive TUI** - Beautiful terminal interface built with Bubbletea  
+🤖 **Multi-LLM Support** - OpenAI, Google Gemini, Anthropic Claude, and any OpenAI-compatible API  
+🛠️ **Built-in Tools** - Read, write, edit files, and execute bash commands  
+💾 **Session Management** - Save, load, and fork conversation sessions  
+🔐 **Permission System** - Granular control over tool execution  
+📜 **Command History** - Persistent input history across sessions  
+🎨 **Customizable** - Themes, extensions, and plugin system  
+⚡ **Fast & Lightweight** - Single binary, minimal dependencies  
 
 ## Quick Start
 
