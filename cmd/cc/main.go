@@ -10,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/myersguo/cc-mono/internal/tui"
 	"github.com/myersguo/cc-mono/pkg/agent"
-	"github.com/myersguo/cc-mono/pkg/ai"
 	"github.com/myersguo/cc-mono/pkg/codingagent/extensions"
 )
 
@@ -28,15 +27,12 @@ func main() {
 
 // runTUI starts the bubbletea TUI interface
 func runTUI(
-	provider ai.Provider,
-	model ai.Model,
-	systemPrompt string,
-	tools []agent.AgentTool,
+	agentInst *agent.Agent,
 	theme string,
 	extensionRunner *extensions.Runner,
 ) error {
 	// Create chat model
-	chatModel := tui.NewChatModel(provider, model, systemPrompt, tools, theme)
+	chatModel := tui.NewChatModel(agentInst, theme)
 
 	// Create bubbletea program
 	p := tea.NewProgram(

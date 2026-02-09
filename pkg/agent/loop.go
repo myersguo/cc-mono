@@ -39,6 +39,7 @@ func AgentLoop(
 	// Add initial prompts to message history
 	for _, prompt := range prompts {
 		state.AddMessage(prompt)
+		eventBus.Publish(NewPromptAddedEvent(prompt))
 	}
 
 	turnCount := 0

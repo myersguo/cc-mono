@@ -12,6 +12,7 @@ import (
 	"github.com/myersguo/cc-mono/pkg/codingagent"
 	"github.com/myersguo/cc-mono/pkg/codingagent/extensions"
 	"github.com/myersguo/cc-mono/pkg/codingagent/tools"
+	"github.com/myersguo/cc-mono/pkg/rpc"
 	"github.com/myersguo/cc-mono/pkg/shared"
 	"github.com/spf13/cobra"
 
@@ -30,6 +31,7 @@ var (
 	modelID        string
 	providerName   string
 	extensionNames []string
+	mode           string // "text" (default), "json", "rpc"
 )
 
 // rootCmd represents the base command
@@ -215,6 +217,35 @@ var versionCmd = &cobra.Command{
 	},
 }
 
+// serveCmd starts the HTTP server
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start HTTP server for CC-Mono",
+	Long: `Start the CC-Mono HTTP server to allow web UI and other clients to communicate with the AI agent.
+The server supports HTTP API and WebSocket connections.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		addr, err := cmd.Flags().GetString("addr")
+		if err != nil {
+			return err
+		}
+
+		agentInst, modelRegistry, providersConfig, sessionMgr, _, err := setupAgent()
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("CC-Mono HTTP server starting...")
+		httpServer := rpc.NewHTTPServer(addr, agentInst, modelRegistry, providersConfig, sessionMgr)
+
+		fmt.Printf("HTTP server listening on %s\n", addr)
+		fmt.Println("Health check: GET /health")
+		fmt.Println("HTTP API: POST /api/rpc")
+		fmt.Println("WebSocket API: /ws/rpc")
+
+		return httpServer.Start()
+	},
+}
+
 func init() {
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Config directory path")
@@ -226,6 +257,14 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&modelID, "model", "", "Model ID to use")
 	rootCmd.PersistentFlags().StringVar(&providerName, "provider", "", "Provider to use")
 	rootCmd.PersistentFlags().StringSliceVar(&extensionNames, "extensions", nil, "Extension names to load")
+	rootCmd.PersistentFlags().StringVar(&mode, "mode", "", "Output mode: text (default), json, or rpc")
+
+	// Serve command flags
+	serveCmd.PersistentFlags().StringP("addr", "a", ":8080", "HTTP server address (host:port)")
+
+	// Chat command flags
+	chatCmd.PersistentFlags().Bool("serve", false, "Start RPC server simultaneously")
+	chatCmd.PersistentFlags().String("addr", ":8080", "RPC server address (if --serve is set)")
 
 	// Add subcommands
 	rootCmd.AddCommand(chatCmd)
@@ -233,6 +272,7 @@ func init() {
 	rootCmd.AddCommand(sessionCmd)
 	rootCmd.AddCommand(extensionCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(serveCmd)
 
 	// Model subcommands
 	modelCmd.AddCommand(modelListCmd)
@@ -247,6 +287,39 @@ func init() {
 
 // runChat starts the interactive chat TUI
 func runChat(cmd *cobra.Command, args []string) error {
+	agentInst, modelRegistry, providersConfig, sessionMgr, extensionRunner, err := setupAgent()
+	if err != nil {
+		return err
+	}
+
+	// Check if we should run in RPC mode
+	if mode == "rpc" {
+		// Create RPC server
+		rpcServer := rpc.NewServer(agentInst, modelRegistry, providersConfig, sessionMgr, os.Stdin, os.Stdout)
+		fmt.Println("Starting RPC server...")
+
+		// Run RPC server
+		ctx := context.Background()
+		return rpcServer.Run(ctx)
+	}
+
+	// Check if we should also start the RPC server
+	serve, _ := cmd.Flags().GetBool("serve")
+	if serve {
+		addr, _ := cmd.Flags().GetString("addr")
+		httpServer := rpc.NewHTTPServer(addr, agentInst, modelRegistry, providersConfig, sessionMgr)
+		go func() {
+			if err := httpServer.Start(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to start RPC server: %v\n", err)
+			}
+		}()
+	}
+
+	// Start TUI (default)
+	return runTUI(agentInst, themeName, extensionRunner)
+}
+
+func setupAgent() (*agent.Agent, *codingagent.ModelRegistry, *codingagent.ProvidersConfig, *codingagent.SessionManager, *extensions.Runner, error) {
 	// Resolve paths
 	resolvedModelsPath := modelsPath
 	resolvedProvidersPath := providersPath
@@ -264,13 +337,13 @@ func runChat(cmd *cobra.Command, args []string) error {
 	// Load model registry
 	modelRegistry := codingagent.NewModelRegistry()
 	if err := modelRegistry.LoadFromFile(resolvedModelsPath); err != nil {
-		return fmt.Errorf("failed to load models: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to load models: %w", err)
 	}
 
 	// Load providers config
 	providersConfig, err := codingagent.LoadProvidersConfig(resolvedProvidersPath)
 	if err != nil {
-		return fmt.Errorf("failed to load providers config: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to load providers config: %w", err)
 	}
 
 	// Get provider name (use flag, or default from config, or "openai")
@@ -284,50 +357,51 @@ func runChat(cmd *cobra.Command, args []string) error {
 	// Get provider config
 	providerConfig, ok := providersConfig.Providers[providerName]
 	if !ok {
-		return fmt.Errorf("provider %s not found in config", providerName)
+		return nil, nil, nil, nil, nil, fmt.Errorf("provider %s not found in config", providerName)
 	}
 
 	// Get model ID (use flag, or default from provider config)
 	if modelID == "" {
 		modelID = providerConfig.DefaultModel
 		if modelID == "" {
-			return fmt.Errorf("no model specified and no default model in provider config")
+			return nil, nil, nil, nil, nil, fmt.Errorf("no model specified and no default model in provider config")
 		}
 	}
 
 	// Get AI model from registry
 	aiModel, err := modelRegistry.ToAIModel(modelID)
 	if err != nil {
-		return fmt.Errorf("failed to get model: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to get model: %w", err)
 	}
 
 	// Create provider
 	provider, err := createProvider(providerName, providerConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create provider: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create provider: %w", err)
 	}
 
 	// Get working directory
-	if workingDir == "." {
-		workingDir, err = os.Getwd()
+	wDir := workingDir
+	if wDir == "." {
+		wDir, err = os.Getwd()
 		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
+			return nil, nil, nil, nil, nil, fmt.Errorf("failed to get working directory: %w", err)
 		}
 	}
 
 	// Create tools
 	agentTools := []agent.AgentTool{
-		tools.CreateReadTool(workingDir),
-		tools.CreateWriteTool(workingDir),
-		tools.CreateEditTool(workingDir),
-		tools.CreateBashTool(workingDir),
+		tools.CreateReadTool(wDir),
+		tools.CreateWriteTool(wDir),
+		tools.CreateEditTool(wDir),
+		tools.CreateBashTool(wDir),
 	}
 
 	// Load extensions
 	extensionLoader := extensions.NewLoader()
 	if len(extensionNames) > 0 {
 		if err := extensionLoader.LoadFromRegistry(extensionNames, nil); err != nil {
-			return fmt.Errorf("failed to load extensions: %w", err)
+			return nil, nil, nil, nil, nil, fmt.Errorf("failed to load extensions: %w", err)
 		}
 	}
 
@@ -356,8 +430,20 @@ When working with code:
 
 Be concise but thorough in your responses.`
 
-	// Start TUI
-	return runTUI(provider, aiModel, systemPrompt, agentTools, themeName, extensionRunner)
+	// Create agent instance
+	agentInst := agent.NewAgent(provider, systemPrompt, aiModel, agentTools)
+
+	// Create session manager
+	sessionsDir, err := getSessionsDir()
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	sessionMgr, err := codingagent.NewSessionManager(sessionsDir)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create session manager: %w", err)
+	}
+
+	return agentInst, modelRegistry, providersConfig, sessionMgr, extensionRunner, nil
 }
 
 // createProvider creates a provider based on name and config

@@ -1,0 +1,19 @@
+.app-layout {
+  height: 100vh;
+}
+
+.app-header {
+  background: linear-gradient(135deg, #0052cc 0%, #0066ff 100%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.app-sidebar {
+  background: #ffffff;
+  border-right: 1px solid #e5e7eb;
+}
+
+.app-content {
+  background: #f7f8fa;
+  padding: 0;
+  overflow: hidden;
+}

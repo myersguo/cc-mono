@@ -24,6 +24,7 @@ type ChatModel struct {
 	height     int
 	modelName  string
 	provider   ai.Provider
+	agent      *agent.Agent
 	agentState *agent.AgentState
 	agentCtx   *agent.AgentContext
 	eventBus   *agent.EventBus
@@ -54,10 +55,7 @@ type ChatModel struct {
 
 // NewChatModel creates a new chat model
 func NewChatModel(
-	provider ai.Provider,
-	model ai.Model,
-	systemPrompt string,
-	tools []agent.AgentTool,
+	agentInst *agent.Agent,
 	themeName string,
 ) *ChatModel {
 	theme := GetTheme(themeName)
@@ -90,11 +88,11 @@ func NewChatModel(
 	// Create permission dialog
 	permDialog := NewPermissionDialog(styles)
 
-	// Create agent state
-	agentState := agent.NewAgentState(systemPrompt, model, tools)
+	// Use existing agent state
+	agentState := agentInst.GetState()
 
-	// Create event bus
-	eventBus := agent.NewEventBus()
+	// Use existing event bus
+	eventBus := agentInst.GetEventBus()
 
 	// Create permission manager
 	projectDir := "."
@@ -128,12 +126,13 @@ func NewChatModel(
 		spinner:          s,
 		permissionDialog: permDialog,
 		historyManager:   historyManager,
-		provider:         provider,
+		provider:         agentInst.GetProvider(),
+		agent:            agentInst,
 		agentState:       agentState,
 		eventBus:         eventBus,
 		ctx:              ctx,
 		cancel:           cancel,
-		modelName:        model.Name,
+		modelName:        agentState.GetModel().Name,
 		messages:         []agent.AgentMessage{},
 		autoScroll:       true,
 		showWelcome:      true,
@@ -485,6 +484,21 @@ func (m *ChatModel) handleAgentEvent(event agent.AgentEvent) (tea.Model, tea.Cmd
 		m.autoScroll = true // Enable auto-scroll
 		m.updateViewportContent()
 
+	case agent.PromptAddedEvent:
+		// Check if message is already in our local list to avoid duplicates
+		exists := false
+		for _, msg := range m.messages {
+			if msg.ID == e.Message.ID {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			m.messages = append(m.messages, e.Message)
+			m.autoScroll = true
+			m.updateViewportContent()
+		}
+
 	case agent.MessageUpdateEvent:
 		// Update streaming message
 		m.statusMessage = "Streaming response..."
@@ -556,16 +570,8 @@ func (m *ChatModel) handleAgentEvent(event agent.AgentEvent) (tea.Model, tea.Cmd
 // startAgent starts the agent loop
 func (m *ChatModel) startAgent(prompts []agent.AgentMessage) tea.Cmd {
 	return func() tea.Msg {
-		// Create agent
-		agentInstance := agent.NewAgent(
-			m.provider,
-			m.agentState.GetSystemPrompt(),
-			m.agentState.GetModel(),
-			m.agentState.GetTools(),
-		)
-
-		// Create agent context
-		m.agentCtx = agent.NewAgentContext(agentInstance)
+		// Create agent context (using the shared agent)
+		m.agentCtx = agent.NewAgentContext(m.agent)
 
 		// Start agent loop in background
 		go func() {

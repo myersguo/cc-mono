@@ -32,6 +32,9 @@ const (
 	// Compaction events
 	EventTypeCompactionStart AgentEventType = "compaction_start"
 	EventTypeCompactionEnd   AgentEventType = "compaction_end"
+
+	// Prompt events
+	EventTypePromptAdded AgentEventType = "prompt_added"
 )
 
 // AgentEvent is the interface that all agent events implement
@@ -236,5 +239,22 @@ func NewPermissionRequestEvent(request *PermissionRequest) PermissionRequestEven
 	return PermissionRequestEvent{
 		Type:    EventTypePermissionRequest,
 		Request: request,
+	}
+}
+
+// PromptAddedEvent is emitted when a user prompt is added to the agent
+type PromptAddedEvent struct {
+	Type    AgentEventType `json:"type"`
+	Message AgentMessage   `json:"message"`
+}
+
+func (e PromptAddedEvent) EventType() AgentEventType { return e.Type }
+func (e PromptAddedEvent) isAgentEvent()             {}
+
+// NewPromptAddedEvent creates a new prompt added event
+func NewPromptAddedEvent(message AgentMessage) PromptAddedEvent {
+	return PromptAddedEvent{
+		Type:    EventTypePromptAdded,
+		Message: message,
 	}
 }
