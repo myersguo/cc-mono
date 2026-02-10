@@ -39,6 +39,12 @@ type ChatModel struct {
 	permissionDialog *PermissionDialogModel
 	historyManager   *HistoryManager
 
+	// Hybrid rendering components
+	useHybridMode        bool // Enable hybrid rendering mode
+	lastRenderedIdx      int  // Index of last message rendered to stdout
+	streamingContent     string
+	needsOutputToStdout  []agent.AgentMessage // Messages pending output to stdout
+
 	// State
 	messages         []agent.AgentMessage
 	streamingMessage *agent.AgentMessage // Current streaming message
@@ -119,24 +125,27 @@ func NewChatModel(
 	}
 
 	return &ChatModel{
-		styles:           styles,
-		viewport:         vp,
-		editor:           editor,
-		messageView:      messageView,
-		spinner:          s,
-		permissionDialog: permDialog,
-		historyManager:   historyManager,
-		provider:         agentInst.GetProvider(),
-		agent:            agentInst,
-		agentState:       agentState,
-		eventBus:         eventBus,
-		ctx:              ctx,
-		cancel:           cancel,
-		modelName:        agentState.GetModel().Name,
-		messages:         []agent.AgentMessage{},
-		autoScroll:       true,
-		showWelcome:      true,
-		workingDir:       workingDir,
+		styles:              styles,
+		viewport:            vp,
+		editor:              editor,
+		messageView:         messageView,
+		spinner:             s,
+		permissionDialog:    permDialog,
+		historyManager:      historyManager,
+		useHybridMode:       true, // Enable hybrid mode by default
+		lastRenderedIdx:     -1,
+		needsOutputToStdout: []agent.AgentMessage{},
+		provider:            agentInst.GetProvider(),
+		agent:               agentInst,
+		agentState:          agentState,
+		eventBus:            eventBus,
+		ctx:                 ctx,
+		cancel:              cancel,
+		modelName:           agentState.GetModel().Name,
+		messages:            []agent.AgentMessage{},
+		autoScroll:          true,
+		showWelcome:         true,
+		workingDir:          workingDir,
 	}
 }
 
@@ -272,6 +281,9 @@ func (m *ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// User submitted a message
 		m.editor.Reset()
 
+		// Hide welcome screen once user starts chatting
+		m.showWelcome = false
+
 		// Add user message
 		userMsg := ai.UserMessage{
 			Type:      ai.MessageTypeUser,
@@ -314,11 +326,33 @@ func (m *ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var spinnerCmd tea.Cmd
 		m.spinner, spinnerCmd = m.spinner.Update(msg)
 		return m, spinnerCmd
+
+	case RefreshMsg:
+		// Just trigger a re-render, no state change needed
+		return m, nil
 	}
 
 	// Update viewport
 	m.viewport, cmd = m.viewport.Update(msg)
 	cmds = append(cmds, cmd)
+
+	// In hybrid mode, output pending messages using tea.Println
+	if m.useHybridMode && len(m.needsOutputToStdout) > 0 {
+		for _, msg := range m.needsOutputToStdout {
+			rendered := m.messageView.Render(msg, m.width)
+			cmds = append(cmds, tea.Println(rendered))
+		}
+		// Clear the queue
+		m.needsOutputToStdout = []agent.AgentMessage{}
+
+		// Clear streaming content after output to prevent view shrinking
+		m.streamingContent = ""
+
+		// Force a refresh to reposition the TUI after println
+		cmds = append(cmds, func() tea.Msg {
+			return RefreshMsg{}
+		})
+	}
 
 	return m, tea.Batch(cmds...)
 }
@@ -340,6 +374,23 @@ func (m *ChatModel) View() string {
 		return m.permissionDialog.View()
 	}
 
+	// In hybrid mode, only render streaming content (if any), editor and footer
+	// All completed messages are output to stdout via tea.Println
+	if m.useHybridMode {
+		sections := []string{}
+
+		// Show streaming content if present
+		if m.streamingContent != "" {
+			sections = append(sections, m.streamingContent)
+		}
+
+		// Always show editor and footer
+		sections = append(sections, m.editor.View(), m.renderFooter())
+
+		return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	}
+
+	// Legacy viewport mode - render full UI
 	sections := []string{
 		m.renderHeader(),
 		m.viewport.View(),
@@ -383,7 +434,57 @@ func (m *ChatModel) renderFooter() string {
 }
 
 // updateViewportContent updates the viewport content
+// Delegates to hybrid or viewport mode based on configuration
 func (m *ChatModel) updateViewportContent() {
+	if m.useHybridMode {
+		m.updateHybridMode()
+	} else {
+		m.updateViewportMode()
+	}
+}
+
+// updateHybridMode updates content using hybrid rendering
+// Marks messages that need to be output to stdout via tea.Println()
+func (m *ChatModel) updateHybridMode() {
+	// Mark new completed messages for output
+	for i := m.lastRenderedIdx + 1; i < len(m.messages); i++ {
+		msg := m.messages[i]
+
+		// Only mark if this is not the currently streaming message
+		if m.streamingMessage == nil || msg.ID != m.streamingMessage.ID {
+			m.needsOutputToStdout = append(m.needsOutputToStdout, msg)
+			m.lastRenderedIdx = i
+		}
+	}
+
+	// Update streaming content for View()
+	if m.streamingMessage != nil {
+		// Actively streaming - render current streaming message
+		m.streamingContent = m.messageView.Render(*m.streamingMessage, m.width)
+	} else if len(m.needsOutputToStdout) > 0 {
+		// Streaming complete, but not yet output - render the completed message(s)
+		// This keeps the view height stable until tea.Println outputs
+		var content strings.Builder
+		for _, msg := range m.needsOutputToStdout {
+			rendered := m.messageView.Render(msg, m.width)
+			content.WriteString(rendered)
+			if len(m.needsOutputToStdout) > 1 {
+				content.WriteString("\n")
+			}
+		}
+		m.streamingContent = content.String()
+	} else {
+		// Nothing to display
+		m.streamingContent = ""
+	}
+
+	// Clear viewport content in hybrid mode
+	m.viewport.SetContent("")
+}
+
+// updateViewportMode updates content using viewport rendering (legacy mode)
+// All messages are rendered in the viewport
+func (m *ChatModel) updateViewportMode() {
 	var content strings.Builder
 
 	// Render all completed messages
@@ -457,6 +558,10 @@ func (m *ChatModel) handleAgentEvent(event agent.AgentEvent) (tea.Model, tea.Cmd
 		m.isAgentRunning = false
 		m.statusMessage = "Agent completed"
 		m.messages = e.Messages
+		// Reset render tracking since messages were replaced
+		if m.useHybridMode {
+			m.lastRenderedIdx = -1
+		}
 		m.updateViewportContent()
 
 	case agent.TurnStartEvent:
@@ -625,6 +730,9 @@ type AgentEventMsg struct {
 	Event agent.AgentEvent
 }
 
+// RefreshMsg triggers a view refresh without any state change
+type RefreshMsg struct{}
+
 // renderWelcomeScreen renders the welcome screen
 func (m *ChatModel) renderWelcomeScreen() string {
 	if m.width == 0 || m.height == 0 {
@@ -635,6 +743,24 @@ func (m *ChatModel) renderWelcomeScreen() string {
 	username := os.Getenv("USER")
 	if username == "" {
 		username = "user"
+	}
+
+	// In hybrid mode, output simplified welcome to stdout and hide it
+	if m.useHybridMode {
+		welcomeMsg := fmt.Sprintf("\n✨ Welcome back %s!\n", username)
+		welcomeMsg += fmt.Sprintf("   Model: %s\n", m.modelName)
+		welcomeMsg += fmt.Sprintf("   Working directory: %s\n\n", m.workingDir)
+		fmt.Print(welcomeMsg)
+
+		// Hide welcome after first render in hybrid mode
+		m.showWelcome = false
+
+		// Return minimal UI
+		sections := []string{
+			m.editor.View(),
+			m.renderFooter(),
+		}
+		return lipgloss.JoinVertical(lipgloss.Left, sections...)
 	}
 
 	// Limit welcome screen height to about 15 lines
