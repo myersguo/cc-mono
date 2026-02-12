@@ -1,6 +1,7 @@
 # CC - Coding Agent
 
 <div align="center">
+<img width="2418" height="860" alt="image" src="https://github.com/user-attachments/assets/1cade535-50f2-4a17-83b7-c003ef311263" />
 
 **An AI-powered coding assistant in your terminal**
 
