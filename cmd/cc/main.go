@@ -38,7 +38,7 @@ func runTUI(
 	p := tea.NewProgram(
 		chatModel,
 		// tea.WithAltScreen(), // Disable alt screen to allow terminal copy/paste
-		// tea.WithMouseCellMotion(), // Disable mouse to avoid interference with selection
+		tea.WithMouseCellMotion(), // Enable wheel scrolling for long content
 	)
 
 	// Run TUI

@@ -57,6 +57,9 @@ type ChatModel struct {
 
 	// Config
 	autoScroll bool
+	// When enabled, the TUI captures mouse wheel events to scroll the viewport.
+	// When disabled, mouse tracking is disabled so the terminal can scroll its own scrollback smoothly.
+	mouseWheelEnabled bool
 }
 
 // NewChatModel creates a new chat model
@@ -132,7 +135,8 @@ func NewChatModel(
 		spinner:             s,
 		permissionDialog:    permDialog,
 		historyManager:      historyManager,
-		useHybridMode:       true, // Enable hybrid mode by default
+		// 默认使用 hybrid 模式：把已完成消息写入 stdout，交给终端 scrollback 负责“丝滑滚动”。
+		useHybridMode:       true,
 		lastRenderedIdx:     -1,
 		needsOutputToStdout: []agent.AgentMessage{},
 		provider:            agentInst.GetProvider(),
@@ -143,7 +147,9 @@ func NewChatModel(
 		cancel:              cancel,
 		modelName:           agentState.GetModel().Name,
 		messages:            []agent.AgentMessage{},
-		autoScroll:          true,
+		autoScroll: true,
+		// 默认不捕获鼠标滚轮，让终端自己处理 scrollback 的惯性/丝滑滚动（更像 Claude Code）。
+		mouseWheelEnabled: false,
 		showWelcome:         true,
 		workingDir:          workingDir,
 	}
@@ -151,11 +157,18 @@ func NewChatModel(
 
 // Init initializes the model
 func (m *ChatModel) Init() tea.Cmd {
-	return tea.Batch(
-		m.spinner.Tick,
-		m.listenForEvents(),
-		m.editor.Focus(), // Always focus editor on start
-	)
+	cmds := []tea.Cmd{m.listenForEvents(), m.editor.Focus()}
+	// 在 hybrid 模式下 UI 不展示 header 的 spinner；禁用 tick 可显著减少无意义重绘，
+	// 否则程序会持续输出 ANSI 更新，导致你在终端 scrollback 顶部很难“稳住”继续滚。
+	if !m.useHybridMode {
+		cmds = append(cmds, m.spinner.Tick)
+	}
+	if !m.mouseWheelEnabled {
+		// Bubble Tea 在启用 mouse 模式时会打开 mouse tracking；这里确保默认关闭，
+		// 让终端滚轮用于 scrollback（丝滑滚动）。
+		cmds = append(cmds, disableMouseTracking())
+	}
+	return tea.Batch(cmds...)
 }
 
 // Update handles messages
@@ -166,6 +179,25 @@ func (m *ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		// Support mouse wheel scrolling even when the editor is focused.
+		// This makes long responses easily scrollable without relying on Ctrl+K/J.
+		if !m.mouseWheelEnabled {
+			return m, nil
+		}
+		switch msg.Type {
+		case tea.MouseWheelUp:
+			m.viewport.LineUp(3)
+			m.autoScroll = false
+			return m, nil
+		case tea.MouseWheelDown:
+			m.viewport.LineDown(3)
+			if m.viewport.AtBottom() {
+				m.autoScroll = true
+			}
+			return m, nil
+		}
+
 	case PermissionResponseMsg:
 		// User responded to permission request
 		if pm := m.ctx.Value("permission_manager"); pm != nil {
@@ -239,11 +271,22 @@ func (m *ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.historyManager != nil {
 				m.historyManager.Flush()
 			}
-			return m, tea.Quit
+			// Make sure mouse tracking is disabled on exit so terminal scrollback works normally.
+			return m, tea.Batch(disableMouseTracking(), tea.Quit)
 
 		case "ctrl+r":
 			// Regenerate last response
 			return m, m.regenerateLastResponse()
+
+		case "ctrl+m":
+			// Toggle between "TUI captures mouse wheel" and "terminal handles smooth scrollback".
+			m.mouseWheelEnabled = !m.mouseWheelEnabled
+			if m.mouseWheelEnabled {
+				m.statusMessage = "Mouse wheel: on (scroll inside TUI)"
+				return m, enableMouseTracking()
+			}
+			m.statusMessage = "Mouse wheel: off (terminal smooth scrollback)"
+			return m, disableMouseTracking()
 
 		case "ctrl+k", "pageup":
 			m.viewport.LineUp(1)
@@ -323,6 +366,10 @@ func (m *ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.listenForEvents())
 
 	case spinner.TickMsg:
+		if m.useHybridMode {
+			// hybrid 模式下禁用 spinner 动画，避免持续输出打断终端 scrollback 的滚动体验。
+			return m, nil
+		}
 		var spinnerCmd tea.Cmd
 		m.spinner, spinnerCmd = m.spinner.Update(msg)
 		return m, spinnerCmd
@@ -425,12 +472,30 @@ func (m *ChatModel) renderFooter() string {
 	help := []string{
 		m.styles.HelpKey.Render("Ctrl+C") + m.styles.HelpValue.Render(" quit"),
 		m.styles.HelpKey.Render("Ctrl+K/J") + m.styles.HelpValue.Render(" scroll"),
+		m.styles.HelpKey.Render("Ctrl+M") + m.styles.HelpValue.Render(" mouse"),
 		m.styles.HelpKey.Render("Ctrl+R") + m.styles.HelpValue.Render(" regenerate"),
 	}
 	parts = append(parts, strings.Join(help, " • "))
 
 	footer := strings.Join(parts, " | ")
 	return m.styles.Footer.Width(m.width).Render(footer)
+}
+
+func enableMouseTracking() tea.Cmd {
+	return func() tea.Msg {
+		// Enable xterm mouse tracking (normal + button events + SGR extended coordinates).
+		// This makes wheel events reach the TUI.
+		fmt.Print("\x1b[?1000h\x1b[?1002h\x1b[?1006h")
+		return nil
+	}
+}
+
+func disableMouseTracking() tea.Cmd {
+	return func() tea.Msg {
+		// Disable any mouse tracking modes so the terminal can use wheel for smooth scrollback.
+		fmt.Print("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l")
+		return nil
+	}
 }
 
 // updateViewportContent updates the viewport content
@@ -551,7 +616,6 @@ func (m *ChatModel) handleAgentEvent(event agent.AgentEvent) (tea.Model, tea.Cmd
 	case agent.AgentStartEvent:
 		m.isAgentRunning = true
 		m.statusMessage = "Agent started..."
-		m.autoScroll = true // Enable auto-scroll for streaming
 		m.updateViewportContent()
 
 	case agent.AgentEndEvent:
@@ -586,7 +650,7 @@ func (m *ChatModel) handleAgentEvent(event agent.AgentEvent) (tea.Model, tea.Cmd
 			m.messages = append(m.messages, toolMsg)
 		}
 
-		m.autoScroll = true // Enable auto-scroll
+		// Respect user's scroll position: only stick to bottom if autoScroll is already enabled.
 		m.updateViewportContent()
 
 	case agent.PromptAddedEvent:
@@ -600,7 +664,6 @@ func (m *ChatModel) handleAgentEvent(event agent.AgentEvent) (tea.Model, tea.Cmd
 		}
 		if !exists {
 			m.messages = append(m.messages, e.Message)
-			m.autoScroll = true
 			m.updateViewportContent()
 		}
 
@@ -608,7 +671,6 @@ func (m *ChatModel) handleAgentEvent(event agent.AgentEvent) (tea.Model, tea.Cmd
 		// Update streaming message
 		m.statusMessage = "Streaming response..."
 		m.streamingMessage = &e.Message
-		m.autoScroll = true // Enable auto-scroll for streaming
 		m.updateViewportContent()
 
 	case agent.ToolExecutionStartEvent:
@@ -631,7 +693,6 @@ func (m *ChatModel) handleAgentEvent(event agent.AgentEvent) (tea.Model, tea.Cmd
 			CreatedAt: time.Now().UnixMilli(),
 		}
 		m.messages = append(m.messages, toolCallMsg)
-		m.autoScroll = true // Enable auto-scroll
 		m.updateViewportContent()
 
 	case agent.ToolExecutionEndEvent:
